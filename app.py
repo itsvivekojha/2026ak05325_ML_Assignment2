@@ -7,58 +7,69 @@ import os
 st.set_page_config(page_title="Credit Default Classifier", layout="wide")
 
 st.title("💳 Credit Card Default Classification Dashboard")
-st.write("This application allows you to evaluate risk predictions using 5 different ML models.")
 
-# Map user-friendly names to filenames
-MODEL_MAP = {
-    "Logistic Regression": "logistic_regression",
-    "Decision Tree": "decision_tree",
-    "K-Nearest Neighbors": "k-nearest_neighbors",
-    "Naive Bayes (Gaussian)": "naive_bayes_gaussian",
-    "Support Vector Machine": "support_vector_machine"
-}
+# Diagnostic Section
+st.subheader("📂 App Environment & Path Diagnostics")
+current_dir = os.getcwd()
+st.write(f"**Current Working Directory:** `{current_dir}`")
 
-# Model loader with robust path checking
+# Robust directory resolving
+possible_folders = [
+    current_dir, 
+    os.path.join(current_dir, 'project-folder'),
+    os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else current_dir
+]
+
+found_model_dir = None
+for folder in possible_folders:
+    test_path = os.path.join(folder, 'model')
+    if os.path.exists(test_path):
+        found_model_dir = test_path
+        break
+
+if found_model_dir:
+    st.success(f"✅ Found model directory at: `{found_model_dir}`")
+    available_files = os.listdir(found_model_dir)
+    st.write(f"**Files inside model directory:** `{available_files}`")
+else:
+    st.error("❌ Could not automatically locate the `model` folder. Please ensure the `model/` directory containing `.joblib` files is in the same directory as this script.")
+
+# Model and Scaler loader
 @st.cache_resource
-def load_artifacts():
+def load_artifacts(model_dir):
     models = {}
-    # Look in current directory model folder, or project-folder subfolder
-    possible_paths = ['.', './project-folder']
-    
-    # Try to find where scaler is to determine the correct path prefix
-    found_prefix = '.'
-    for prefix in possible_paths:
-        test_path = os.path.join(prefix, 'model', 'scaler.joblib')
-        if os.path.exists(test_path):
-            found_prefix = prefix
-            break
-
+    scaler = None
+    if not model_dir:
+        return models, None
+        
     # Load scaler
-    scaler_path = os.path.join(found_prefix, 'model', 'scaler.joblib')
-    scaler = joblib.load(scaler_path) if os.path.exists(scaler_path) else None
+    scaler_path = os.path.join(model_dir, 'scaler.joblib')
+    if os.path.exists(scaler_path):
+        scaler = joblib.load(scaler_path)
 
-    # Load models
-    for display_name, file_name in MODEL_MAP.items():
-        path = os.path.join(found_prefix, 'model', f'{file_name}.joblib')
-        if os.path.exists(path):
-            models[display_name] = joblib.load(path)
+    # Auto-discover all files ending in .joblib except the scaler
+    for f in os.listdir(model_dir):
+        if f.endswith('.joblib') and f != 'scaler.joblib':
+            model_name = f.replace('.joblib', '').replace('_', ' ').title()
+            path = os.path.join(model_dir, f)
+            try:
+                models[model_name] = joblib.load(path)
+            except Exception as e:
+                st.warning(f"Could not load {f}: {e}")
             
-    return models, scaler, found_prefix
+    return models, scaler
 
-models, scaler, path_prefix = load_artifacts()
+models, scaler = load_artifacts(found_model_dir)
 
 # Sidebar options
 st.sidebar.header("Configuration")
 
-# Debugging path visualizer in sidebar to ensure files are visible
-st.sidebar.write(f"Detected active folder: `{os.path.abspath(path_prefix)}`")
-
 if not models:
-    st.sidebar.error("❌ No models found! Please verify model files exist inside the `./model/` directory.")
+    st.sidebar.error("❌ No models loaded.")
+    model_choice = "None Available"
 else:
-    st.sidebar.success(f"✅ Successfully loaded {len(models)} models!")
-
-model_choice = st.sidebar.selectbox("Choose Classification Model", list(models.keys()) if models else ["No models loaded"])
+    st.sidebar.success(f"✅ Loaded {len(models)} models!")
+    model_choice = st.sidebar.selectbox("Choose Classification Model", list(models.keys()))
 
 uploaded_file = st.sidebar.file_uploader("Upload Test CSV Data", type="csv")
 
@@ -67,22 +78,25 @@ if uploaded_file is not None:
     st.subheader("Uploaded Dataset Preview")
     st.dataframe(data.head())
 
-    # Check if we should drop a target column
+    # Check if we should drop target column Y
     features = data.copy()
     if 'Y' in features.columns:
         features = features.drop(columns=['Y'])
 
     if st.button("Run Predictions"):
         if scaler and model_choice in models:
-            scaled_features = scaler.transform(features)
-            predictions = models[model_choice].predict(scaled_features)
+            try:
+                scaled_features = scaler.transform(features)
+                predictions = models[model_choice].predict(scaled_features)
 
-            res_df = data.copy()
-            res_df['Predicted_Default'] = predictions
+                res_df = data.copy()
+                res_df['Predicted_Default'] = predictions
 
-            st.subheader("Prediction Results")
-            st.dataframe(res_df)
+                st.subheader("Prediction Results")
+                st.dataframe(res_df)
+            except Exception as e:
+                st.error(f"Prediction execution failed: {e}")
         else:
-            st.error("Selected model or scaler artifacts could not be loaded successfully.")
+            st.error("Selected model or scaler is missing. Verify the path diagnostic output above.")
 else:
     st.info("Please upload a test dataset (like `test_data.csv` found in this repository) to run predictions.")
