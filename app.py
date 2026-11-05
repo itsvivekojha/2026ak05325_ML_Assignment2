@@ -18,22 +18,47 @@ MODEL_MAP = {
     "Support Vector Machine": "support_vector_machine"
 }
 
-# Model loader
+# Model loader with robust path checking
 @st.cache_resource
 def load_artifacts():
     models = {}
+    # Look in current directory model folder, or project-folder subfolder
+    possible_paths = ['.', './project-folder']
+    
+    # Try to find where scaler is to determine the correct path prefix
+    found_prefix = '.'
+    for prefix in possible_paths:
+        test_path = os.path.join(prefix, 'model', 'scaler.joblib')
+        if os.path.exists(test_path):
+            found_prefix = prefix
+            break
+
+    # Load scaler
+    scaler_path = os.path.join(found_prefix, 'model', 'scaler.joblib')
+    scaler = joblib.load(scaler_path) if os.path.exists(scaler_path) else None
+
+    # Load models
     for display_name, file_name in MODEL_MAP.items():
-        path = f'project-folder/model/{file_name}.joblib'
+        path = os.path.join(found_prefix, 'model', f'{file_name}.joblib')
         if os.path.exists(path):
             models[display_name] = joblib.load(path)
-    scaler = joblib.load('project-folder/model/scaler.joblib') if os.path.exists('project-folder/model/scaler.joblib') else None
-    return models, scaler
+            
+    return models, scaler, found_prefix
 
-models, scaler = load_artifacts()
+models, scaler, path_prefix = load_artifacts()
 
 # Sidebar options
 st.sidebar.header("Configuration")
-model_choice = st.sidebar.selectbox("Choose Classification Model", list(MODEL_MAP.keys()))
+
+# Debugging path visualizer in sidebar to ensure files are visible
+st.sidebar.write(f"Detected active folder: `{os.path.abspath(path_prefix)}`")
+
+if not models:
+    st.sidebar.error("❌ No models found! Please verify model files exist inside the `./model/` directory.")
+else:
+    st.sidebar.success(f"✅ Successfully loaded {len(models)} models!")
+
+model_choice = st.sidebar.selectbox("Choose Classification Model", list(models.keys()) if models else ["No models loaded"])
 
 uploaded_file = st.sidebar.file_uploader("Upload Test CSV Data", type="csv")
 
