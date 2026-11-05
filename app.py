@@ -6,14 +6,16 @@ import os
 
 st.set_page_config(page_title="Credit Default Classifier", layout="wide")
 
-st.title("💳 Credit Card Default Classification Dashboard")
+# Header Banner using triple single quotes inside a double-quoted block
+st.markdown('''
+<div style='background-color:#0e1117; padding:20px; border-radius:10px; margin-bottom:25px;'>
+    <h1 style='color:#ffffff; text-align:center; margin:0;'>Credit Card Default Classification Dashboard</h1>
+    <p style='color:#a3a8b4; text-align:center; margin:5px 0 0 0;'>Interactive real-time prediction & model comparison platform</p>
+</div>
+''', unsafe_allow_html=True)
 
-# Diagnostic Section
-st.subheader("📂 App Environment & Path Diagnostics")
+# Detect and locate the model folder autonomously
 current_dir = os.getcwd()
-st.write(f"**Current Working Directory:** `{current_dir}`")
-
-# Resolve absolute paths to prevent any lookup ambiguity
 possible_folders = [
     current_dir,
     os.path.join(current_dir, 'project-folder'),
@@ -27,14 +29,7 @@ for folder in possible_folders:
         found_model_dir = os.path.abspath(test_path)
         break
 
-if found_model_dir:
-    st.success(f"✅ Found model directory at: `{found_model_dir}`")
-    available_files = os.listdir(found_model_dir)
-    st.write(f"**Files inside model directory:** `{available_files}`")
-else:
-    st.error("❌ Could not locate the `model` folder. Please ensure the `model/` folder containing `.joblib` files is in the same directory as this script.")
-
-# Raw model and Scaler loader (without st.cache_resource to prevent caching issues)
+# Model and Scaler loader
 def load_artifacts_raw(model_dir):
     models = {}
     scaler = None
@@ -46,56 +41,92 @@ def load_artifacts_raw(model_dir):
     if os.path.exists(scaler_path):
         scaler = joblib.load(scaler_path)
 
-    # Auto-discover all files ending in .joblib except the scaler
+    # Auto-discover all joblib files
     for f in os.listdir(model_dir):
         if f.endswith('.joblib') and f != 'scaler.joblib':
             model_name = f.replace('.joblib', '').replace('_', ' ').title()
             path = os.path.join(model_dir, f)
             try:
                 models[model_name] = joblib.load(path)
-            except Exception as e:
-                st.warning(f"Could not load {f}: {e}")
-
+            except:
+                pass
     return models, scaler
 
 models, scaler = load_artifacts_raw(found_model_dir)
 
-# Sidebar options
-st.sidebar.header("Configuration")
+# Main Columns
+col1, col2 = st.columns([1, 2], gap="large")
 
-if not models:
-    st.sidebar.error("❌ No models loaded.")
-    model_choice = "None Available"
-else:
-    st.sidebar.success(f"✅ Loaded {len(models)} models!")
-    model_choice = st.sidebar.selectbox("Choose Classification Model", list(models.keys()))
+with col1:
+    st.markdown("### Configuration & Upload")
 
-uploaded_file = st.sidebar.file_uploader("Upload Test CSV Data", type="csv")
+    if not models:
+        st.error("No models loaded. Please check model paths.")
+        model_choice = "None Available"
+    else:
+        st.success(f"Successfully loaded {len(models)} models!")
+        model_choice = st.selectbox("**Choose Classification Model**", list(models.keys()))
 
-if uploaded_file is not None:
-    data = pd.read_csv(uploaded_file)
-    st.subheader("Uploaded Dataset Preview")
-    st.dataframe(data.head())
+    uploaded_file = st.file_uploader("**Upload Test CSV Data**", type="csv")
 
-    # Check if we should drop target column Y
-    features = data.copy()
-    if 'Y' in features.columns:
-        features = features.drop(columns=['Y'])
+    st.markdown("---")
+    st.markdown("📝 **Quick Info**:
+" 
+                "To make predictions, upload a CSV dataset containing client credit history (matching features `X1` to `X23`).")
 
-    if st.button("Run Predictions"):
-        if scaler and model_choice in models:
-            try:
-                scaled_features = scaler.transform(features)
-                predictions = models[model_choice].predict(scaled_features)
+with col2:
+    st.markdown("### Dashboard & Prediction Hub")
 
-                res_df = data.copy()
-                res_df['Predicted_Default'] = predictions
+    # Tab layouts for Clean Segregation
+    tab1, tab2 = st.tabs(["Model Evaluation Summary", "Predict Default Risk"])
 
-                st.subheader("Prediction Results")
-                st.dataframe(res_df)
-            except Exception as e:
-                st.error(f"Prediction execution failed: {e}")
+    with tab1:
+        st.markdown("#### Performance Comparison (UCI Credit Default Dataset)")
+        # Create explicit dataframe display matching analysis
+        comparison_data = {
+            "Model": ["Decision Tree", "Support Vector Machine", "Logistic Regression", "K-Nearest Neighbors", "Naive Bayes (Gaussian)"],
+            "Accuracy": ["81.63%", "81.60%", "80.77%", "79.28%", "75.25%"],
+            "AUC Score": [0.7444, 0.7210, 0.7076, 0.7014, 0.7249],
+            "Precision": ["65.47%", "66.52%", "68.68%", "54.87%", "45.15%"],
+            "Recall": ["35.87%", "33.84%", "23.96%", "35.64%", "55.39%"],
+            "F1 Score": ["46.35%", "44.86%", "35.53%", "43.22%", "49.75%"],
+            "MCC Score": [0.3879, 0.3809, 0.3244, 0.3233, 0.3386]
+        }
+        df_metrics = pd.DataFrame(comparison_data)
+        st.dataframe(df_metrics, use_container_width=True)
+        st.markdown("**Key Insights:** Decision Tree (Max Depth = 6) provides the most balanced predictions with optimal AUC (0.744) and accuracy.")
+
+    with tab2:
+        if uploaded_file is not None:
+            data = pd.read_csv(uploaded_file)
+            st.success("File Uploaded Successfully!")
+
+            st.markdown("**Input Preview:**")
+            st.dataframe(data.head(5), use_container_width=True)
+
+            if st.button("Run Predictions", type="primary"):
+                if scaler and model_choice in models:
+                    try:
+                        features = data.copy()
+                        if 'Y' in features.columns:
+                            features = features.drop(columns=['Y'])
+
+                        scaled_features = scaler.transform(features)
+                        predictions = models[model_choice].predict(scaled_features)
+
+                        res_df = data.copy()
+                        res_df['Predicted_Default'] = predictions
+
+                        st.markdown("---")
+                        st.markdown("#### Prediction Results")
+                        st.dataframe(res_df, use_container_width=True)
+
+                        # Summary Stats
+                        defaults_count = int(np.sum(predictions))
+                        st.metric("Flagged Defaults Identified", f"{defaults_count} / {len(predictions)}")
+                    except Exception as e:
+                        st.error(f"Prediction failed: {e}")
+                else:
+                    st.error("Selected model configuration or scaler is missing.")
         else:
-            st.error("Selected model or scaler is missing. Verify the path diagnostic output above.")
-else:
-    st.info("Please upload a test dataset (like `test_data.csv` found in this repository) to run predictions.")
+            st.info("Please upload a test dataset (like `test_data.csv` found in this directory) to run predictions.")
