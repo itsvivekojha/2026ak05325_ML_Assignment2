@@ -13,9 +13,9 @@ st.subheader("📂 App Environment & Path Diagnostics")
 current_dir = os.getcwd()
 st.write(f"**Current Working Directory:** `{current_dir}`")
 
-# Robust directory resolving
+# Resolve absolute paths to prevent any lookup ambiguity
 possible_folders = [
-    current_dir, 
+    current_dir,
     os.path.join(current_dir, 'project-folder'),
     os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else current_dir
 ]
@@ -24,7 +24,7 @@ found_model_dir = None
 for folder in possible_folders:
     test_path = os.path.join(folder, 'model')
     if os.path.exists(test_path):
-        found_model_dir = test_path
+        found_model_dir = os.path.abspath(test_path)
         break
 
 if found_model_dir:
@@ -32,16 +32,15 @@ if found_model_dir:
     available_files = os.listdir(found_model_dir)
     st.write(f"**Files inside model directory:** `{available_files}`")
 else:
-    st.error("❌ Could not automatically locate the `model` folder. Please ensure the `model/` directory containing `.joblib` files is in the same directory as this script.")
+    st.error("❌ Could not locate the `model` folder. Please ensure the `model/` folder containing `.joblib` files is in the same directory as this script.")
 
-# Model and Scaler loader
-@st.cache_resource
-def load_artifacts(model_dir):
+# Raw model and Scaler loader (without st.cache_resource to prevent caching issues)
+def load_artifacts_raw(model_dir):
     models = {}
     scaler = None
     if not model_dir:
         return models, None
-        
+
     # Load scaler
     scaler_path = os.path.join(model_dir, 'scaler.joblib')
     if os.path.exists(scaler_path):
@@ -56,10 +55,10 @@ def load_artifacts(model_dir):
                 models[model_name] = joblib.load(path)
             except Exception as e:
                 st.warning(f"Could not load {f}: {e}")
-            
+
     return models, scaler
 
-models, scaler = load_artifacts(found_model_dir)
+models, scaler = load_artifacts_raw(found_model_dir)
 
 # Sidebar options
 st.sidebar.header("Configuration")
